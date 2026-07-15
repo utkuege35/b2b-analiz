@@ -398,7 +398,7 @@
 
     <div class="field">
       <label>Bu ne tür bir kalem? *</label>
-      <div class="type-grid">
+      <div class="type-grid" style="grid-template-columns: 1fr 1fr;">
         <div class="type-btn" onclick="tipSec('MM',this)">
           <div class="type-icon">🍽️</div>
           <div class="type-label">ÜRÜN</div>
@@ -408,11 +408,6 @@
           <div class="type-icon">🥣</div>
           <div class="type-label">ARA ÜRÜN</div>
           <div class="type-desc">Mutfakta yapılıp başka ürünlerde kullanılan</div>
-        </div>
-        <div class="type-btn" onclick="tipSec('HM',this)">
-          <div class="type-icon">📦</div>
-          <div class="type-label">HAMMADDE</div>
-          <div class="type-desc">Satın alınan, depoda tutulan</div>
         </div>
       </div>
     </div>
@@ -509,10 +504,6 @@
         <div class="ozet-sayi" style="color:var(--accent2)" id="ozYM">0</div>
         <div class="ozet-label">Ara Ürün (YM)</div>
       </div>
-      <div class="ozet-kart">
-        <div class="ozet-sayi" style="color:#64748B" id="ozHM">0</div>
-        <div class="ozet-label">Hammadde (HM)</div>
-      </div>
     </div>
 
     <div id="urunListesi" style="margin-bottom:14px;"></div>
@@ -551,10 +542,6 @@
       <div class="ozet-kart">
         <div class="ozet-sayi" style="color:var(--accent2)" id="finYM">0</div>
         <div class="ozet-label">Ara Ürün</div>
-      </div>
-      <div class="ozet-kart">
-        <div class="ozet-sayi" style="color:#64748B" id="finHM">0</div>
-        <div class="ozet-label">Hammadde</div>
       </div>
     </div>
     <button class="btn-primary" style="margin-top:8px;" onclick="location.reload()">Yeni oturum başlat</button>
@@ -690,14 +677,6 @@ function urunIleri() {
   state.aktifAd = ad;
   state.aktifKategori = document.getElementById('kategoriSec').value;
   state.aktifBirim = document.getElementById('birimSec').value;
-
-  if (state.aktifTip === 'HM') {
-    // Hammadde → direkt kaydet
-    state.kayitlar.push({ad, tip:'HM', kategori:'', birim:state.aktifBirim, icerikler:[]});
-    updateOzet();
-    goTo('s3');
-    return;
-  }
 
   // MM veya YM → reçete gir
   const uyari = document.getElementById('receteUyariText');
@@ -843,10 +822,8 @@ function receteIleri() {
 function updateOzet() {
   const mm = state.kayitlar.filter(k=>k.tip==='MM').length;
   const ym = state.kayitlar.filter(k=>k.tip==='YM').length;
-  const hm = state.kayitlar.filter(k=>k.tip==='HM').length;
   document.getElementById('ozMM').textContent = mm;
   document.getElementById('ozYM').textContent = ym;
-  document.getElementById('ozHM').textContent = hm;
 
   // Ürün listesi
   const liste = document.getElementById('urunListesi');
@@ -903,8 +880,7 @@ function gonderOnay() {
   if (state.kayitlar.length === 0) { alert('Henüz kayıt girilmedi.'); return; }
   const mm = state.kayitlar.filter(k=>k.tip==='MM').length;
   const ym = state.kayitlar.filter(k=>k.tip==='YM').length;
-  const hm = state.kayitlar.filter(k=>k.tip==='HM').length;
-  const ok = confirm(`Toplam ${state.kayitlar.length} kayıt gönderilecek (${mm} Ürün, ${ym} Ara Ürün, ${hm} Hammadde).\n\nGönderdikten sonra bu oturuma ürün eklenemez. Devam edilsin mi?`);
+  const ok = confirm(`Toplam ${state.kayitlar.length} kayıt gönderilecek (${mm} Ürün, ${ym} Ara Ürün).\n\nGönderdikten sonra bu oturuma ürün eklenemez. Devam edilsin mi?`);
   if (ok) bitir();
 }
 
@@ -967,10 +943,8 @@ async function bitir() {
 
     const mm = state.kayitlar.filter(k=>k.tip==='MM').length;
     const ym = state.kayitlar.filter(k=>k.tip==='YM').length;
-    const hm = state.kayitlar.filter(k=>k.tip==='HM').length;
     document.getElementById('finMM').textContent = mm;
     document.getElementById('finYM').textContent = ym;
-    document.getElementById('finHM').textContent = hm;
     goTo('s4');
 
   } catch (err) {
