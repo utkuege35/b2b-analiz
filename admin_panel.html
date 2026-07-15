@@ -149,6 +149,17 @@
   .match-form { display:flex; gap:5px; align-items:center; }
   .match-form select { font-size: 12px; padding: 3px 5px; border-radius: 5px; border: 1px solid var(--border); max-width: 140px; font-family: inherit; }
   .match-form button { font-size: 11px; padding: 4px 8px; border-radius: 5px; border: 1px solid var(--border); background: var(--surface); cursor:pointer; }
+  .edit-icon {
+    background: none; border: none; cursor: pointer; font-size: 12px; color: var(--muted);
+    padding: 0 2px; vertical-align: middle;
+  }
+  .edit-icon:hover { color: var(--accent); }
+  .inline-edit-row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .inline-edit-row input, .inline-edit-row select {
+    font-family: inherit; font-size: 12.5px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px;
+  }
+  .inline-edit-row .save-btn { background: var(--accent); color: white; border: none; font-size: 11px; padding: 4px 9px; border-radius: 5px; cursor: pointer; }
+  .inline-edit-row .cancel-btn { background: var(--surface); border: 1px solid var(--border); font-size: 11px; padding: 4px 9px; border-radius: 5px; cursor: pointer; }
 
   .loading { text-align:center; padding: 40px; color: var(--muted); font-size: 13px; }
 </style>
@@ -219,6 +230,7 @@ let aktifOturumId = null;
 let aktifFirmaId = null;
 let aktifUrunler = [];
 let aktifReceteler = [];
+let grupListesi = [];
 
 // ── GİRİŞ / OTURUM ────────────────────────────────
 async function girisYap() {
@@ -252,10 +264,25 @@ async function girisSonrasiBaslat(user) {
   document.getElementById('app').style.display = 'block';
   document.getElementById('headerUserEmail').textContent = user.email;
 
-  const { data: stokData } = await sb.from('stok_havuzu').select('id, ad, birim').eq('aktif', true).order('ad');
+  const { data: stokData } = await sb.from('stok_havuzu').select('id, ad, birim, kategori, ana_grup, alt_grup').eq('aktif', true).order('ad');
   stokHavuzu = stokData || [];
+  grupListesi = benzersizGruplariCikar(stokHavuzu);
 
   oturumlariYukle();
+}
+
+function benzersizGruplariCikar(stokListesi) {
+  const map = new Map();
+  stokListesi.forEach(s => {
+    if (!s.ana_grup && !s.alt_grup) return;
+    const key = `${s.kategori || ''}|||${s.ana_grup || ''}|||${s.alt_grup || ''}`;
+    if (!map.has(key)) {
+      map.set(key, { kategori: s.kategori || '', ana_grup: s.ana_grup || '', alt_grup: s.alt_grup || '' });
+    }
+  });
+  return Array.from(map.values()).sort((a, b) =>
+    (a.kategori + a.ana_grup + a.alt_grup).localeCompare(b.kategori + b.ana_grup + b.alt_grup, 'tr')
+  );
 }
 
 // Sayfa açılışında mevcut oturum var mı kontrol et
@@ -382,11 +409,12 @@ async function detayGoster(oturumId) {
     urunler.forEach(u => {
       const kendiReceteler = receteler.filter(r => r.urun_id === u.id);
       html += `
-        <div class="product-card">
+        <div class="product-card" id="product-card-${u.id}">
           <div class="product-top">
             <div>
               <span class="product-name">${u.ad}</span>
               <span class="tip-tag ${u.tip}">${u.tip}</span>
+              <button class="edit-icon" onclick="urunDuzenle('${u.id}')" title="Ürünü düzenle">✎</button>
             </div>
             <span style="font-size:12px;color:var(--muted);">${u.birim}</span>
           </div>
@@ -395,9 +423,9 @@ async function detayGoster(oturumId) {
             <table class="ing-table">
               ${kendiReceteler.map(r => `
                 <tr id="ing-row-${r.id}">
-                  <td class="ing-name ${r.elle_yazildi && !r.havuz_stok_id ? 'unmatched' : ''}">${r.malzeme_ad}</td>
+                  <td class="ing-name ${r.elle_yazildi && !r.havuz_stok_id ? 'unmatched' : ''}">${r.malzeme_ad} <button class="edit-icon" onclick="ingRowDuzenle('${r.id}')" title="Malzemeyi düzenle">✎</button></td>
                   <td class="ing-amt">${r.miktar ?? '-'} ${r.birim}</td>
-                  <td>${eslesmeHucresi(r)}</td>
+                  <td id="match-cell-${r.id}">${eslesmeHucresi(r)}</td>
                 </tr>
               `).join('')}
             </table>
@@ -408,6 +436,66 @@ async function detayGoster(oturumId) {
   }
 
   content.innerHTML = html;
+}
+
+const BIRIM_LISTESI = ['gr','kg','ml','lt','adet','cl','dilim','tane','demet','paket','rulo','bardak','porsiyon','kaşık','tatlı kaşığı','çay kaşığı'];
+
+function urunDuzenle(urunId) {
+  const u = aktifUrunler.find(x => x.id === urunId);
+  const card = document.getElementById('product-card-' + urunId);
+  if (!u || !card) return;
+  const top = card.querySelector('.product-top');
+  top.innerHTML = `
+    <div class="inline-edit-row" style="flex:1;">
+      <input type="text" id="urun-ad-${urunId}" value="${u.ad.replace(/"/g,'&quot;')}" style="font-weight:600; min-width:150px;">
+      <input type="text" id="urun-kat-${urunId}" value="${(u.kategori||'').replace(/"/g,'&quot;')}" placeholder="Kategori" style="min-width:110px;">
+      <select id="urun-birim-${urunId}">
+        ${BIRIM_LISTESI.map(b => `<option ${b===u.birim?'selected':''}>${b}</option>`).join('')}
+      </select>
+      <button class="save-btn" onclick="urunKaydet('${urunId}')">Kaydet</button>
+      <button class="cancel-btn" onclick="detayGoster(aktifOturumId)">İptal</button>
+    </div>
+  `;
+}
+
+async function urunKaydet(urunId) {
+  const ad = document.getElementById('urun-ad-' + urunId).value.trim();
+  const kategori = document.getElementById('urun-kat-' + urunId).value.trim();
+  const birim = document.getElementById('urun-birim-' + urunId).value;
+  if (!ad) { alert('Ürün adı boş olamaz.'); return; }
+  const { error } = await sb.from('girilen_urunler').update({ ad, kategori: kategori || null, birim }).eq('id', urunId);
+  if (error) { alert('Hata: ' + error.message); return; }
+  detayGoster(aktifOturumId);
+}
+
+function ingRowDuzenle(receteId) {
+  const r = aktifReceteler.find(x => x.id === receteId);
+  const row = document.getElementById('ing-row-' + receteId);
+  if (!r || !row) return;
+  row.innerHTML = `
+    <td colspan="3">
+      <div class="inline-edit-row">
+        <input type="text" id="ing-ad-${receteId}" value="${r.malzeme_ad.replace(/"/g,'&quot;')}" style="flex:1; min-width:140px;">
+        <input type="number" id="ing-miktar-${receteId}" value="${r.miktar ?? ''}" style="width:70px;">
+        <select id="ing-birim-${receteId}">
+          ${BIRIM_LISTESI.map(b => `<option ${b===r.birim?'selected':''}>${b}</option>`).join('')}
+        </select>
+        <button class="save-btn" onclick="ingRowKaydet('${receteId}')">Kaydet</button>
+        <button class="cancel-btn" onclick="detayGoster(aktifOturumId)">İptal</button>
+      </div>
+    </td>
+  `;
+}
+
+async function ingRowKaydet(receteId) {
+  const ad = document.getElementById('ing-ad-' + receteId).value.trim();
+  const miktarRaw = document.getElementById('ing-miktar-' + receteId).value;
+  const birim = document.getElementById('ing-birim-' + receteId).value;
+  if (!ad) { alert('Malzeme adı boş olamaz.'); return; }
+  const miktar = miktarRaw === '' ? null : parseFloat(miktarRaw);
+  const { error } = await sb.from('girilen_receteler').update({ malzeme_ad: ad, miktar, birim }).eq('id', receteId);
+  if (error) { alert('Hata: ' + error.message); return; }
+  detayGoster(aktifOturumId);
 }
 
 function eslesmeHucresi(r) {
@@ -428,9 +516,52 @@ function eslesmeHucresi(r) {
         ${stokHavuzu.map(s => `<option value="${s.id}">${s.ad}</option>`).join('')}
       </select>
       <button onclick="malzemeEslestir('${r.id}')">Eşleştir</button>
-      <button onclick="yeniStokEkle('${r.id}', '${r.malzeme_ad.replace(/'/g,"\\'")}', '${r.birim}')">+ Yeni ekle</button>
+      <button onclick="acYeniStokFormu('${r.id}', '${r.malzeme_ad.replace(/'/g,"\\'")}', '${r.birim}')">+ Yeni ekle</button>
     </div>
   `;
+}
+
+function acYeniStokFormu(receteId, ad, birim) {
+  const cell = document.getElementById('match-cell-' + receteId);
+  if (!cell) return;
+  const grupOptions = grupListesi.map((g, i) =>
+    `<option value="${i}">${[g.kategori, g.ana_grup, g.alt_grup].filter(Boolean).join(' › ')}</option>`
+  ).join('');
+  cell.innerHTML = `
+    <div class="match-form" style="flex-direction:column; align-items:stretch; gap:6px;">
+      <div style="font-size:11.5px; color:var(--muted);">"${ad}" (${birim}) hangi gruba eklensin?</div>
+      <select id="grup-sel-${receteId}" style="max-width:220px;">
+        <option value="">— grup seç —</option>
+        ${grupOptions}
+      </select>
+      <div style="display:flex; gap:5px;">
+        <button onclick="yeniStokEkleGrupIle('${receteId}', '${ad.replace(/'/g,"\\'")}', '${birim}')">Ekle</button>
+        <button onclick="detayGoster(aktifOturumId)">İptal</button>
+      </div>
+    </div>
+  `;
+}
+
+async function yeniStokEkleGrupIle(receteId, ad, birim) {
+  const sel = document.getElementById('grup-sel-' + receteId);
+  const idx = sel.value;
+  if (idx === '') { alert('Lütfen bir grup seçin.'); return; }
+  const grup = grupListesi[idx];
+
+  const { data: yeniStok, error: insertErr } = await sb
+    .from('stok_havuzu')
+    .insert({ ad, birim, kategori: grup.kategori || null, ana_grup: grup.ana_grup || null, alt_grup: grup.alt_grup || null })
+    .select('id')
+    .single();
+  if (insertErr) { alert('Hata: ' + insertErr.message); return; }
+
+  const { error: updateErr } = await sb.from('girilen_receteler')
+    .update({ havuz_stok_id: yeniStok.id, elle_yazildi: false })
+    .eq('id', receteId);
+  if (updateErr) { alert('Hata: ' + updateErr.message); return; }
+
+  stokHavuzu.push({ id: yeniStok.id, ad, birim, kategori: grup.kategori, ana_grup: grup.ana_grup, alt_grup: grup.alt_grup });
+  detayGoster(aktifOturumId);
 }
 
 async function malzemeEslestir(receteId) {
@@ -441,25 +572,6 @@ async function malzemeEslestir(receteId) {
     .update({ havuz_stok_id: stokId, elle_yazildi: false })
     .eq('id', receteId);
   if (error) { alert('Hata: ' + error.message); return; }
-  detayGoster(aktifOturumId);
-}
-
-async function yeniStokEkle(receteId, ad, birim) {
-  const ok = confirm(`"${ad}" stok havuzuna yeni kalem olarak eklenecek (birim: ${birim}). Devam edilsin mi?`);
-  if (!ok) return;
-  const { data: yeniStok, error: insertErr } = await sb
-    .from('stok_havuzu')
-    .insert({ ad, birim })
-    .select('id')
-    .single();
-  if (insertErr) { alert('Hata: ' + insertErr.message); return; }
-
-  const { error: updateErr } = await sb.from('girilen_receteler')
-    .update({ havuz_stok_id: yeniStok.id, elle_yazildi: false })
-    .eq('id', receteId);
-  if (updateErr) { alert('Hata: ' + updateErr.message); return; }
-
-  stokHavuzu.push({ id: yeniStok.id, ad, birim });
   detayGoster(aktifOturumId);
 }
 
