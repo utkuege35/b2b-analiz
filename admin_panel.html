@@ -372,7 +372,7 @@ async function detayGoster(oturumId) {
 
   const { data: urunler, error: urunErr } = await sb
     .from('girilen_urunler')
-    .select('id, ad, tip, kategori, birim, onaylandi')
+    .select('id, ad, tip, kategori, birim, onaylandi, havuz_stok_id')
     .eq('oturum_id', oturumId)
     .order('created_at');
 
@@ -418,7 +418,8 @@ async function detayGoster(oturumId) {
             </div>
             <span style="font-size:12px;color:var(--muted);">${u.birim}</span>
           </div>
-          ${u.kategori ? `<div class="product-cat">${u.kategori}</div>` : ''}
+          ${u.tip === 'HM' ? `<div class="product-cat" id="hm-durum-${u.id}">${u.havuz_stok_id ? '<span class="match-badge">✓ stok havuzuna bağlı</span>' : '<span class="match-badge" style="background:var(--danger-light);color:var(--danger);">⚠ stok havuzuna bağlı değil</span>'}</div>` : ''}
+          ${u.tip !== 'HM' && u.kategori ? `<div class="product-cat">${u.kategori}</div>` : ''}
           ${kendiReceteler.length > 0 ? `
             <table class="ing-table">
               ${kendiReceteler.map(r => `
@@ -448,7 +449,7 @@ function urunDuzenle(urunId) {
   top.innerHTML = `
     <div class="inline-edit-row" style="flex:1;">
       <input type="text" id="urun-ad-${urunId}" value="${u.ad.replace(/"/g,'&quot;')}" style="font-weight:600; min-width:150px;">
-      <input type="text" id="urun-kat-${urunId}" value="${(u.kategori||'').replace(/"/g,'&quot;')}" placeholder="Kategori" style="min-width:110px;">
+      ${u.tip !== 'HM' ? `<input type="text" id="urun-kat-${urunId}" value="${(u.kategori||'').replace(/"/g,'&quot;')}" placeholder="Kategori" style="min-width:110px;">` : ''}
       <select id="urun-birim-${urunId}">
         ${BIRIM_LISTESI.map(b => `<option ${b===u.birim?'selected':''}>${b}</option>`).join('')}
       </select>
@@ -456,11 +457,75 @@ function urunDuzenle(urunId) {
       <button class="cancel-btn" onclick="detayGoster(aktifOturumId)">İptal</button>
     </div>
   `;
+
+  if (u.tip === 'HM') {
+    const durumEl = document.getElementById('hm-durum-' + urunId);
+    const grupOptions = grupListesi.map((g, i) =>
+      `<option value="${i}">${[g.kategori, g.ana_grup, g.alt_grup].filter(Boolean).join(' › ')}</option>`
+    ).join('');
+    durumEl.innerHTML = `
+      <div style="margin-top:8px; padding:10px; background:var(--bg); border-radius:8px;">
+        <div style="font-size:11.5px; font-weight:600; margin-bottom:6px;">Stok Havuzuna Bağla</div>
+        <div class="inline-edit-row" style="margin-bottom:6px;">
+          <select id="hm-mevcut-${urunId}" style="max-width:220px;">
+            <option value="">— mevcut kalemlerden seç —</option>
+            ${stokHavuzu.map(s => `<option value="${s.id}" ${s.id===u.havuz_stok_id?'selected':''}>${s.ad}</option>`).join('')}
+          </select>
+          <button class="save-btn" onclick="urunHavuzEslestir('${urunId}')">Eşleştir</button>
+        </div>
+        <div class="inline-edit-row">
+          <select id="hm-grup-${urunId}" style="max-width:220px;">
+            <option value="">— veya yeni kalem için grup seç —</option>
+            ${grupOptions}
+          </select>
+          <button class="save-btn" onclick="urunHavuzYeniEkle('${urunId}')">Yeni Kalem Olarak Ekle</button>
+        </div>
+      </div>
+    `;
+  }
+}
+
+async function urunHavuzEslestir(urunId) {
+  const sel = document.getElementById('hm-mevcut-' + urunId);
+  const stokId = sel.value;
+  if (!stokId) { alert('Lütfen mevcut kalemlerden birini seçin.'); return; }
+  const { error } = await sb.from('girilen_urunler').update({ havuz_stok_id: stokId }).eq('id', urunId);
+  if (error) { alert('Hata: ' + error.message); return; }
+  detayGoster(aktifOturumId);
+}
+
+async function urunHavuzYeniEkle(urunId) {
+  const u = aktifUrunler.find(x => x.id === urunId);
+  const grupSel = document.getElementById('hm-grup-' + urunId);
+  const idx = grupSel.value;
+  if (idx === '') { alert('Lütfen bir grup seçin.'); return; }
+  const grup = grupListesi[idx];
+  const adInput = document.getElementById('urun-ad-' + urunId);
+  const birimSel = document.getElementById('urun-birim-' + urunId);
+  const ad = (adInput ? adInput.value.trim() : u.ad) || u.ad;
+  const birim = birimSel ? birimSel.value : u.birim;
+
+  const { data: yeniStok, error: insertErr } = await sb
+    .from('stok_havuzu')
+    .insert({ ad, birim, kategori: grup.kategori || null, ana_grup: grup.ana_grup || null, alt_grup: grup.alt_grup || null })
+    .select('id')
+    .single();
+  if (insertErr) { alert('Hata: ' + insertErr.message); return; }
+
+  const { error: updateErr } = await sb.from('girilen_urunler')
+    .update({ havuz_stok_id: yeniStok.id, ad, birim })
+    .eq('id', urunId);
+  if (updateErr) { alert('Hata: ' + updateErr.message); return; }
+
+  stokHavuzu.push({ id: yeniStok.id, ad, birim, kategori: grup.kategori, ana_grup: grup.ana_grup, alt_grup: grup.alt_grup });
+  detayGoster(aktifOturumId);
 }
 
 async function urunKaydet(urunId) {
+  const u = aktifUrunler.find(x => x.id === urunId);
   const ad = document.getElementById('urun-ad-' + urunId).value.trim();
-  const kategori = document.getElementById('urun-kat-' + urunId).value.trim();
+  const kategoriInput = document.getElementById('urun-kat-' + urunId);
+  const kategori = kategoriInput ? kategoriInput.value.trim() : (u ? u.kategori : null);
   const birim = document.getElementById('urun-birim-' + urunId).value;
   if (!ad) { alert('Ürün adı boş olamaz.'); return; }
   const { error } = await sb.from('girilen_urunler').update({ ad, kategori: kategori || null, birim }).eq('id', urunId);
@@ -586,6 +651,18 @@ async function oturumOnayla() {
     );
     return;
   }
+
+  // 2) Havuza bağlanmamış HM ürün var mı kontrol et
+  const bagsizHM = aktifUrunler.filter(u => u.tip === 'HM' && !u.havuz_stok_id);
+  if (bagsizHM.length > 0) {
+    alert(
+      `Onaylanamaz: ${bagsizHM.length} hammadde henüz stok havuzuna bağlanmamış.\n\n` +
+      bagsizHM.map(u => '- ' + u.ad).join('\n') +
+      `\n\nÖnce ürün kartındaki ✎ ikonuyla bu hammaddeleri havuza bağlayın.`
+    );
+    return;
+  }
+
   if (aktifUrunler.length === 0) { alert('Bu oturumda ürün yok.'); return; }
 
   const ok = confirm(`${aktifUrunler.length} ürün onaylanıp firma kataloğuna yazılacak. Aynı isimde ürün varsa reçetesi güncellenecek. Devam edilsin mi?`);
