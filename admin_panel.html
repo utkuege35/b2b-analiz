@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yönetici Paneli</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #F7F6F3;
+    --surface: #FFFFFF;
+    --border: #E2DDD6;
+    --text: #1A1814;
+    --muted: #7A746C;
+    --accent: #2D6A4F;
+    --accent-light: #EAF4EF;
+    --accent2: #C17A2B;
+    --accent2-light: #FDF3E3;
+    --danger: #C0392B;
+    --danger-light: #FDECEA;
+    --warn: #B7610A;
+    --warn-light: #FEF3E2;
+    --radius: 10px;
+    --shadow: 0 2px 12px rgba(0,0,0,0.07);
+  }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* ── LOGIN ───────────────────────────── */
+  #loginScreen {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .login-box {
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 36px 32px;
+    width: 100%;
+    max-width: 360px;
+  }
+  .login-box h1 { font-size: 18px; margin-bottom: 4px; }
+  .login-box p { font-size: 13px; color: var(--muted); margin-bottom: 22px; }
+  .field { margin-bottom: 14px; }
+  .field label { display:block; font-size: 12px; font-weight: 600; margin-bottom: 5px; color: var(--muted); }
+  .field input {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 14px; font-family: inherit;
+  }
+  .field input:focus { outline: none; border-color: var(--accent); }
+  .btn {
+    width: 100%; padding: 11px; border: none; border-radius: 8px;
+    background: var(--accent); color: white; font-size: 14px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+  }
+  .btn:hover { opacity: 0.92; }
+  .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .btn-sm { padding: 6px 12px; font-size: 12px; width: auto; }
+  .btn-outline {
+    background: transparent; border: 1px solid var(--border); color: var(--text);
+  }
+  .btn-danger { background: var(--danger); }
+  .err-msg { color: var(--danger); font-size: 12.5px; margin-top: 10px; display:none; }
+
+  /* ── HEADER ──────────────────────────── */
+  .header {
+    background: var(--accent); color: white; padding: 14px 20px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 50;
+  }
+  .header-title { font-size: 15px; font-weight: 700; }
+  .header-sub { font-size: 11px; opacity: 0.8; }
+  .header-right { display:flex; align-items:center; gap:10px; }
+  .logout-link { color: white; font-size: 12px; opacity: 0.85; cursor: pointer; text-decoration: underline; background:none; border:none; font-family:inherit;}
+
+  /* ── LAYOUT ──────────────────────────── */
+  #app { display: none; }
+  .container { max-width: 960px; margin: 0 auto; padding: 20px 16px 60px; }
+
+  .filter-row { display:flex; gap:8px; margin-bottom: 16px; flex-wrap: wrap; align-items:center; }
+  .filter-btn {
+    padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border);
+    background: var(--surface); font-size: 12.5px; font-weight: 500; cursor: pointer;
+    color: var(--muted); font-family: inherit;
+  }
+  .filter-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .refresh-btn { margin-left: auto; }
+
+  .session-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px 16px; margin-bottom: 10px; cursor: pointer; transition: box-shadow 0.15s;
+  }
+  .session-card:hover { box-shadow: var(--shadow); }
+  .session-top { display:flex; justify-content:space-between; align-items:flex-start; gap: 10px; }
+  .session-firma { font-weight: 700; font-size: 14.5px; }
+  .session-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .badge {
+    font-size: 10.5px; font-weight: 700; padding: 3px 9px; border-radius: 20px;
+    white-space: nowrap; text-transform: uppercase; letter-spacing: 0.3px;
+  }
+  .badge.bekliyor { background: var(--warn-light); color: var(--warn); }
+  .badge.onaylandi { background: var(--accent-light); color: var(--accent); }
+  .badge.reddedildi { background: var(--danger-light); color: var(--danger); }
+  .session-counts { display:flex; gap: 14px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .session-counts b { color: var(--text); }
+
+  .empty-state { text-align:center; padding: 60px 20px; color: var(--muted); font-size: 13.5px; }
+
+  /* ── DETAIL VIEW ─────────────────────── */
+  #detailView { display:none; }
+  .back-link { font-size: 13px; color: var(--accent); cursor: pointer; font-weight: 600; display:inline-block; margin-bottom: 14px; }
+  .detail-header {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px; margin-bottom: 16px;
+  }
+  .detail-header h2 { font-size: 17px; margin-bottom: 4px; }
+  .detail-header .meta { font-size: 12.5px; color: var(--muted); }
+  .detail-actions { display:flex; gap: 8px; margin-top: 14px; }
+
+  .product-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px 16px; margin-bottom: 10px;
+  }
+  .product-top { display:flex; justify-content:space-between; align-items:center; }
+  .product-name { font-weight: 700; font-size: 14px; }
+  .tip-tag { font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 6px; }
+  .tip-tag.MM { background: var(--accent-light); color: var(--accent); }
+  .tip-tag.YM { background: var(--accent2-light); color: var(--accent2); }
+  .tip-tag.HM { background: #EFEFEF; color: #555; }
+  .product-cat { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  .ing-table { width:100%; margin-top: 10px; border-collapse: collapse; }
+  .ing-table td { padding: 6px 4px; font-size: 12.5px; border-top: 1px solid var(--border); vertical-align: middle; }
+  .ing-name { font-weight: 500; }
+  .ing-name.unmatched { color: var(--danger); }
+  .ing-amt { color: var(--muted); white-space: nowrap; }
+  .match-badge { font-size: 10px; background: var(--accent-light); color: var(--accent); padding: 2px 7px; border-radius: 10px; }
+  .match-form { display:flex; gap:5px; align-items:center; }
+  .match-form select { font-size: 12px; padding: 3px 5px; border-radius: 5px; border: 1px solid var(--border); max-width: 140px; font-family: inherit; }
+  .match-form button { font-size: 11px; padding: 4px 8px; border-radius: 5px; border: 1px solid var(--border); background: var(--surface); cursor:pointer; }
+
+  .loading { text-align:center; padding: 40px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<!-- ══════════ LOGIN ══════════ -->
+<div id="loginScreen">
+  <div class="login-box">
+    <h1>🔐 Yönetici Girişi</h1>
+    <p>Veri toplama sistemine gelen kayıtları görmek ve onaylamak için giriş yapın.</p>
+    <div class="field">
+      <label>E-posta</label>
+      <input type="email" id="loginEmail" placeholder="ornek@mail.com">
+    </div>
+    <div class="field">
+      <label>Şifre</label>
+      <input type="password" id="loginPass" placeholder="••••••••">
+    </div>
+    <button class="btn" id="loginBtn" onclick="girisYap()">Giriş Yap</button>
+    <div class="err-msg" id="loginErr"></div>
+  </div>
+</div>
+
+<!-- ══════════ APP ══════════ -->
+<div id="app">
+  <div class="header">
+    <div>
+      <div class="header-title">📋 Yönetici Paneli</div>
+      <div class="header-sub" id="headerUserEmail"></div>
+    </div>
+    <div class="header-right">
+      <button class="logout-link" onclick="cikisYap()">Çıkış yap</button>
+    </div>
+  </div>
+
+  <div class="container">
+
+    <!-- LİSTE GÖRÜNÜMÜ -->
+    <div id="listView">
+      <div class="filter-row">
+        <button class="filter-btn active" data-durum="bekliyor" onclick="filtrele('bekliyor')">Bekliyor</button>
+        <button class="filter-btn" data-durum="onaylandi" onclick="filtrele('onaylandi')">Onaylandı</button>
+        <button class="filter-btn" data-durum="reddedildi" onclick="filtrele('reddedildi')">Reddedildi</button>
+        <button class="filter-btn" data-durum="hepsi" onclick="filtrele('hepsi')">Hepsi</button>
+        <button class="filter-btn refresh-btn" onclick="oturumlariYukle()">↻ Yenile</button>
+      </div>
+      <div id="sessionList"><div class="loading">Yükleniyor...</div></div>
+    </div>
+
+    <!-- DETAY GÖRÜNÜMÜ -->
+    <div id="detailView">
+      <div class="back-link" onclick="listeyeDon()">← Listeye dön</div>
+      <div id="detailContent"><div class="loading">Yükleniyor...</div></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://nazluxfflpgfpixangmo.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5hemx1eGZmbHBnZnBpeGFuZ21vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5OTUyNDcsImV4cCI6MjA5ODU3MTI0N30.dsgo2F79LDbXHzJQBsHQa-4KO_5riQhVQVdQq5USDfM';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let stokHavuzu = []; // {id, ad, birim}
+let aktifFiltre = 'bekliyor';
+let aktifOturumId = null;
+
+// ── GİRİŞ / OTURUM ────────────────────────────────
+async function girisYap() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass = document.getElementById('loginPass').value;
+  const btn = document.getElementById('loginBtn');
+  const err = document.getElementById('loginErr');
+  err.style.display = 'none';
+  if (!email || !pass) { err.textContent = 'E-posta ve şifre gerekli.'; err.style.display='block'; return; }
+
+  btn.disabled = true; btn.textContent = 'Giriş yapılıyor...';
+  const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+  btn.disabled = false; btn.textContent = 'Giriş Yap';
+
+  if (error) {
+    err.textContent = 'Giriş başarısız: ' + error.message;
+    err.style.display = 'block';
+    return;
+  }
+  girisSonrasiBaslat(data.user);
+}
+
+async function cikisYap() {
+  await sb.auth.signOut();
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+}
+
+async function girisSonrasiBaslat(user) {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('headerUserEmail').textContent = user.email;
+
+  const { data: stokData } = await sb.from('stok_havuzu').select('id, ad, birim').eq('aktif', true).order('ad');
+  stokHavuzu = stokData || [];
+
+  oturumlariYukle();
+}
+
+// Sayfa açılışında mevcut oturum var mı kontrol et
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) girisSonrasiBaslat(session.user);
+})();
+
+// ── LİSTE GÖRÜNÜMÜ ────────────────────────────────
+function filtrele(durum) {
+  aktifFiltre = durum;
+  document.querySelectorAll('.filter-btn[data-durum]').forEach(b => {
+    b.classList.toggle('active', b.dataset.durum === durum);
+  });
+  oturumlariYukle();
+}
+
+async function oturumlariYukle() {
+  const listEl = document.getElementById('sessionList');
+  listEl.innerHTML = '<div class="loading">Yükleniyor...</div>';
+
+  let q = sb.from('toplama_oturumlari')
+    .select('id, kullanici_ad, bolum, durum, created_at, firmalar(ad)')
+    .order('created_at', { ascending: false });
+
+  if (aktifFiltre !== 'hepsi') q = q.eq('durum', aktifFiltre);
+
+  const { data: oturumlar, error } = await q;
+  if (error) { listEl.innerHTML = `<div class="empty-state">Hata: ${error.message}</div>`; return; }
+  if (!oturumlar || oturumlar.length === 0) {
+    listEl.innerHTML = '<div class="empty-state">Bu filtrede kayıt yok.</div>';
+    return;
+  }
+
+  const oturumIds = oturumlar.map(o => o.id);
+  const { data: urunler } = await sb.from('girilen_urunler').select('oturum_id, tip').in('oturum_id', oturumIds);
+
+  const sayilar = {};
+  (urunler || []).forEach(u => {
+    if (!sayilar[u.oturum_id]) sayilar[u.oturum_id] = { MM: 0, YM: 0, HM: 0 };
+    sayilar[u.oturum_id][u.tip]++;
+  });
+
+  listEl.innerHTML = oturumlar.map(o => {
+    const s = sayilar[o.id] || { MM: 0, YM: 0, HM: 0 };
+    const tarih = new Date(o.created_at).toLocaleString('tr-TR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+    return `
+      <div class="session-card" onclick="detayGoster('${o.id}')">
+        <div class="session-top">
+          <div>
+            <div class="session-firma">${o.firmalar ? o.firmalar.ad : '(bilinmeyen firma)'}</div>
+            <div class="session-meta">${o.kullanici_ad} · ${o.bolum} · ${tarih}</div>
+          </div>
+          <span class="badge ${o.durum}">${o.durum}</span>
+        </div>
+        <div class="session-counts">
+          <span><b>${s.MM}</b> Ürün</span>
+          <span><b>${s.YM}</b> Ara Ürün</span>
+          <span><b>${s.HM}</b> Hammadde</span>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function listeyeDon() {
+  document.getElementById('detailView').style.display = 'none';
+  document.getElementById('listView').style.display = 'block';
+  oturumlariYukle();
+}
+
+// ── DETAY GÖRÜNÜMÜ ────────────────────────────────
+async function detayGoster(oturumId) {
+  aktifOturumId = oturumId;
+  document.getElementById('listView').style.display = 'none';
+  document.getElementById('detailView').style.display = 'block';
+  const content = document.getElementById('detailContent');
+  content.innerHTML = '<div class="loading">Yükleniyor...</div>';
+
+  const { data: oturum, error: oturumErr } = await sb
+    .from('toplama_oturumlari')
+    .select('id, kullanici_ad, bolum, durum, created_at, firmalar(ad)')
+    .eq('id', oturumId)
+    .single();
+
+  if (oturumErr || !oturum) { content.innerHTML = `<div class="empty-state">Hata: ${oturumErr?.message || 'Oturum bulunamadı'}</div>`; return; }
+
+  const { data: urunler, error: urunErr } = await sb
+    .from('girilen_urunler')
+    .select('id, ad, tip, kategori, birim, onaylandi')
+    .eq('oturum_id', oturumId)
+    .order('created_at');
+
+  if (urunErr) { content.innerHTML = `<div class="empty-state">Hata: ${urunErr.message}</div>`; return; }
+
+  const urunIds = (urunler || []).map(u => u.id);
+  let receteler = [];
+  if (urunIds.length > 0) {
+    const { data: receteData } = await sb
+      .from('girilen_receteler')
+      .select('id, urun_id, malzeme_ad, miktar, birim, havuz_stok_id, elle_yazildi')
+      .in('urun_id', urunIds);
+    receteler = receteData || [];
+  }
+
+  const tarih = new Date(oturum.created_at).toLocaleString('tr-TR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+
+  let html = `
+    <div class="detail-header">
+      <h2>${oturum.firmalar ? oturum.firmalar.ad : '(bilinmeyen firma)'}</h2>
+      <div class="meta">${oturum.kullanici_ad} · ${oturum.bolum} · ${tarih} · <span class="badge ${oturum.durum}">${oturum.durum}</span></div>
+      <div class="detail-actions">
+        <button class="btn btn-sm" style="width:auto;" onclick="oturumDurumGuncelle('onaylandi')">✓ Oturumu Onayla</button>
+        <button class="btn btn-sm btn-outline" style="width:auto;" onclick="oturumDurumGuncelle('reddedildi')">Reddet</button>
+      </div>
+    </div>
+  `;
+
+  if (!urunler || urunler.length === 0) {
+    html += '<div class="empty-state">Bu oturumda ürün yok.</div>';
+  } else {
+    urunler.forEach(u => {
+      const kendiReceteler = receteler.filter(r => r.urun_id === u.id);
+      html += `
+        <div class="product-card">
+          <div class="product-top">
+            <div>
+              <span class="product-name">${u.ad}</span>
+              <span class="tip-tag ${u.tip}">${u.tip}</span>
+            </div>
+            <span style="font-size:12px;color:var(--muted);">${u.birim}</span>
+          </div>
+          ${u.kategori ? `<div class="product-cat">${u.kategori}</div>` : ''}
+          ${kendiReceteler.length > 0 ? `
+            <table class="ing-table">
+              ${kendiReceteler.map(r => `
+                <tr id="ing-row-${r.id}">
+                  <td class="ing-name ${r.elle_yazildi && !r.havuz_stok_id ? 'unmatched' : ''}">${r.malzeme_ad}</td>
+                  <td class="ing-amt">${r.miktar ?? '-'} ${r.birim}</td>
+                  <td>${eslesmeHucresi(r)}</td>
+                </tr>
+              `).join('')}
+            </table>
+          ` : ''}
+        </div>
+      `;
+    });
+  }
+
+  content.innerHTML = html;
+}
+
+function eslesmeHucresi(r) {
+  if (r.havuz_stok_id) {
+    return `<span class="match-badge">✓ havuzda</span>`;
+  }
+  if (!r.elle_yazildi) {
+    return `<span class="match-badge">✓ havuzda</span>`;
+  }
+  // Elle yazılmış, eşleşmemiş — eşleştirme formu göster
+  const oneriler = stokHavuzu
+    .filter(s => s.ad.toLowerCase().includes(r.malzeme_ad.toLowerCase().slice(0,4)))
+    .slice(0, 15);
+  return `
+    <div class="match-form">
+      <select id="sel-${r.id}">
+        <option value="">— seç —</option>
+        ${stokHavuzu.map(s => `<option value="${s.id}">${s.ad}</option>`).join('')}
+      </select>
+      <button onclick="malzemeEslestir('${r.id}')">Eşleştir</button>
+      <button onclick="yeniStokEkle('${r.id}', '${r.malzeme_ad.replace(/'/g,"\\'")}', '${r.birim}')">+ Yeni ekle</button>
+    </div>
+  `;
+}
+
+async function malzemeEslestir(receteId) {
+  const sel = document.getElementById('sel-' + receteId);
+  const stokId = sel.value;
+  if (!stokId) { alert('Lütfen bir kalem seçin.'); return; }
+  const { error } = await sb.from('girilen_receteler')
+    .update({ havuz_stok_id: stokId, elle_yazildi: false })
+    .eq('id', receteId);
+  if (error) { alert('Hata: ' + error.message); return; }
+  detayGoster(aktifOturumId);
+}
+
+async function yeniStokEkle(receteId, ad, birim) {
+  const ok = confirm(`"${ad}" stok havuzuna yeni kalem olarak eklenecek (birim: ${birim}). Devam edilsin mi?`);
+  if (!ok) return;
+  const { data: yeniStok, error: insertErr } = await sb
+    .from('stok_havuzu')
+    .insert({ ad, birim })
+    .select('id')
+    .single();
+  if (insertErr) { alert('Hata: ' + insertErr.message); return; }
+
+  const { error: updateErr } = await sb.from('girilen_receteler')
+    .update({ havuz_stok_id: yeniStok.id, elle_yazildi: false })
+    .eq('id', receteId);
+  if (updateErr) { alert('Hata: ' + updateErr.message); return; }
+
+  stokHavuzu.push({ id: yeniStok.id, ad, birim });
+  detayGoster(aktifOturumId);
+}
+
+async function oturumDurumGuncelle(durum) {
+  const label = durum === 'onaylandi' ? 'onaylamak' : 'reddetmek';
+  const ok = confirm(`Bu oturumu ${label} istediğinize emin misiniz?`);
+  if (!ok) return;
+
+  const { error: oturumErr } = await sb.from('toplama_oturumlari')
+    .update({ durum })
+    .eq('id', aktifOturumId);
+  if (oturumErr) { alert('Hata: ' + oturumErr.message); return; }
+
+  if (durum === 'onaylandi') {
+    await sb.from('girilen_urunler')
+      .update({ onaylandi: true })
+      .eq('oturum_id', aktifOturumId);
+  }
+
+  listeyeDon();
+}
+</script>
+</body>
+</html>
