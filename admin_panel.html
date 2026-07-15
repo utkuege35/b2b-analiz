@@ -216,6 +216,9 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let stokHavuzu = []; // {id, ad, birim}
 let aktifFiltre = 'bekliyor';
 let aktifOturumId = null;
+let aktifFirmaId = null;
+let aktifUrunler = [];
+let aktifReceteler = [];
 
 // ── GİRİŞ / OTURUM ────────────────────────────────
 async function girisYap() {
@@ -333,11 +336,12 @@ async function detayGoster(oturumId) {
 
   const { data: oturum, error: oturumErr } = await sb
     .from('toplama_oturumlari')
-    .select('id, kullanici_ad, bolum, durum, created_at, firmalar(ad)')
+    .select('id, firma_id, kullanici_ad, bolum, durum, created_at, firmalar(ad)')
     .eq('id', oturumId)
     .single();
 
   if (oturumErr || !oturum) { content.innerHTML = `<div class="empty-state">Hata: ${oturumErr?.message || 'Oturum bulunamadı'}</div>`; return; }
+  aktifFirmaId = oturum.firma_id;
 
   const { data: urunler, error: urunErr } = await sb
     .from('girilen_urunler')
@@ -346,6 +350,7 @@ async function detayGoster(oturumId) {
     .order('created_at');
 
   if (urunErr) { content.innerHTML = `<div class="empty-state">Hata: ${urunErr.message}</div>`; return; }
+  aktifUrunler = urunler || [];
 
   const urunIds = (urunler || []).map(u => u.id);
   let receteler = [];
@@ -356,6 +361,7 @@ async function detayGoster(oturumId) {
       .in('urun_id', urunIds);
     receteler = receteData || [];
   }
+  aktifReceteler = receteler;
 
   const tarih = new Date(oturum.created_at).toLocaleString('tr-TR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
 
@@ -364,7 +370,7 @@ async function detayGoster(oturumId) {
       <h2>${oturum.firmalar ? oturum.firmalar.ad : '(bilinmeyen firma)'}</h2>
       <div class="meta">${oturum.kullanici_ad} · ${oturum.bolum} · ${tarih} · <span class="badge ${oturum.durum}">${oturum.durum}</span></div>
       <div class="detail-actions">
-        <button class="btn btn-sm" style="width:auto;" onclick="oturumDurumGuncelle('onaylandi')">✓ Oturumu Onayla</button>
+        <button class="btn btn-sm" style="width:auto;" onclick="oturumOnayla()">✓ Oturumu Onayla ve Yayınla</button>
         <button class="btn btn-sm btn-outline" style="width:auto;" onclick="oturumDurumGuncelle('reddedildi')">Reddet</button>
       </div>
     </div>
@@ -455,6 +461,68 @@ async function yeniStokEkle(receteId, ad, birim) {
 
   stokHavuzu.push({ id: yeniStok.id, ad, birim });
   detayGoster(aktifOturumId);
+}
+
+async function oturumOnayla() {
+  // 1) Eşleşmemiş malzeme var mı kontrol et
+  const eslesmeyenler = aktifReceteler.filter(r => !r.havuz_stok_id);
+  if (eslesmeyenler.length > 0) {
+    alert(
+      `Onaylanamaz: ${eslesmeyenler.length} malzeme henüz stok havuzuyla eşleştirilmemiş.\n\n` +
+      eslesmeyenler.map(r => '- ' + r.malzeme_ad).join('\n') +
+      `\n\nÖnce yukarıdaki listeden bu malzemeleri eşleştirin veya havuza yeni kalem olarak ekleyin.`
+    );
+    return;
+  }
+  if (aktifUrunler.length === 0) { alert('Bu oturumda ürün yok.'); return; }
+
+  const ok = confirm(`${aktifUrunler.length} ürün onaylanıp firma kataloğuna yazılacak. Aynı isimde ürün varsa reçetesi güncellenecek. Devam edilsin mi?`);
+  if (!ok) return;
+
+  try {
+    for (const u of aktifUrunler) {
+      // 2) urunler tablosuna upsert (firma_id + ad eşleşmesine göre)
+      const { data: urunKaydi, error: upsertErr } = await sb
+        .from('urunler')
+        .upsert(
+          { firma_id: aktifFirmaId, ad: u.ad, tip: u.tip, kategori: u.kategori, birim: u.birim, updated_at: new Date().toISOString() },
+          { onConflict: 'firma_id,ad' }
+        )
+        .select('id')
+        .single();
+
+      if (upsertErr) throw upsertErr;
+      const urunId = urunKaydi.id;
+
+      // 3) Bu ürünün eski reçetesini temizle, yenisini yaz
+      const kendiReceteler = aktifReceteler.filter(r => r.urun_id === u.id);
+      if (kendiReceteler.length > 0) {
+        const { error: delErr } = await sb.from('receteler').delete().eq('urun_id', urunId);
+        if (delErr) throw delErr;
+
+        const { error: insErr } = await sb.from('receteler').insert(
+          kendiReceteler.map(r => ({
+            urun_id: urunId,
+            stok_id: r.havuz_stok_id,
+            miktar: r.miktar || 0,
+            birim: r.birim,
+          }))
+        );
+        if (insErr) throw insErr;
+      }
+    }
+
+    // 4) Oturumu ve ürünleri onaylandı işaretle
+    await sb.from('toplama_oturumlari').update({ durum: 'onaylandi' }).eq('id', aktifOturumId);
+    await sb.from('girilen_urunler').update({ onaylandi: true }).eq('oturum_id', aktifOturumId);
+
+    alert('Onaylandı ve firma kataloğuna yazıldı.');
+    listeyeDon();
+
+  } catch (err) {
+    console.error(err);
+    alert('Hata oluştu: ' + (err.message || JSON.stringify(err)));
+  }
 }
 
 async function oturumDurumGuncelle(durum) {
